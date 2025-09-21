@@ -6,7 +6,7 @@ const firebaseConfig = {
   apiKey: "AIzaSyAqzfPRI279ayf4bEUiVkdyzg8mbxPBymM",
   authDomain: "resource-clicker-ff934.firebaseapp.com",
   projectId: "resource-clicker-ff934",
-  storageBucket: "resource-clicker-ff934.firebasestorage.app",
+  storageBucket: "resource-clicker-ff934.appspot.com",
   messagingSenderId: "414877764604",
   appId: "1:414877764604:web:a07f21b810ca4e4698c079",
   measurementId: "G-JNLRBTSQZG"
@@ -325,7 +325,7 @@ const firebaseConfig = {
 apiKey: "AIzaSyAqzfPRI279ayf4bEUiVkdyzg8mbxPBymM",
 authDomain: "resource-clicker-ff934.firebaseapp.com",
 projectId: "resource-clicker-ff934",
-storageBucket: "resource-clicker-ff934.firebasestorage.app",
+storageBucket: "resource-clicker-ff934.appspot.com",
 messagingSenderId: "414877764604",
 appId: "1:414877764604:web:a07f21b810ca4e4698c079",
 measurementId: "G-JNLRBTSQZG"
@@ -337,27 +337,45 @@ const LB_COLLECTION = "leaderboard";
 function normalizeName(name){ return (name||"").trim().toLowerCase(); }
 
 // Upsert: one row per name (case-insensitive). Only updates if new score is higher.
-async function submitOnlineUpsert(name, score){
-  const nameKey = normalizeName(name);
+async function submitOnlineUpsert(name, score) {
+  const nameKey = normalizeName(name) || "anonymous";
   const coll = collection(db, LB_COLLECTION);
-  const q = query(coll, where("nameKey","==",nameKey), limit(1));
-  const snap = await getDocs(q);
+  const ref = doc(coll, nameKey); // ✅ always use nameKey as doc ID
 
-  if(snap.empty){
-    const ref = doc(coll, nameKey || 'anonymous');
-    await setDoc(ref, { name: name || "Anonymous", nameKey, score: Number(score)||0, ts: serverTimestamp() });
-    return {action:'insert'};
+  const snap = await getDocs(query(coll, where("nameKey", "==", nameKey), limit(1)));
+
+  if (snap.empty) {
+    // Create new doc
+    await setDoc(ref, {
+      name: name || "Anonymous",
+      nameKey,
+      score: Number(score) || 0,
+      ts: serverTimestamp()
+    });
+    return { action: "insert" };
   } else {
     const docRef = snap.docs[0].ref;
     const data = snap.docs[0].data() || {};
-    const current = Number(data.score)||0;
-    if(Number(score) > current){
-      await updateDoc(docRef, { name: name || "Anonymous", score: Number(score)||0, ts: serverTimestamp() });
-      return {action:'update'};
+    const current = Number(data.score) || 0;
+
+    if (Number(score) > current) {
+      // Update only if higher
+      await setDoc(ref, {
+        name: name || "Anonymous",
+        nameKey,
+        score: Number(score) || 0,
+        ts: serverTimestamp()
+      });
+      return { action: "update" };
     } else {
-      if((name||"") && data.name !== name){
-        try{ await updateDoc(docRef, { name }); }catch(e){} // keep casing
+      // If user typed different casing of their name, update it quietly
+      if ((name || "") && data.name !== name) {
+        try { await updateDoc(docRef, { name }); } catch (e) {}
       }
+      return { action: "noop" };
+    }
+  }
+}
       return {action:'noop'};
     }
   }
